@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""
+clippy-state: writes per-session state files that Clippy aggregates.
+
+Invoked by Claude Code hooks. Claude Code pipes a JSON payload on stdin that
+includes session_id. We use that to partition state per-session so multiple
+concurrent terminals don't step on each other.
+
+Usage:
+  clippy-state <event>
+
+Events:
+  on-user-prompt, on-pre-tool, on-post-tool, on-notification,
+  on-stop, on-session-start, on-session-end, on-compact-start, reset
+"""
+
+import json
+import os
+import sys
+import select
+from datetime import datetime, timezone
+from pathlib import Path
+
+STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "clippy"
+SESSIONS_DIR = STATE_DIR / "sessions"
+SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Opportunistically unlink peer session files older than this. Catches sessions
+# that died without firing SessionEnd (crash, kill -9, closed terminal).
+PEER_STALE_SECS = 300
+
+
+def read_stdin_json() -> dict:
+    """Read JSON from stdin if available (non-blocking). Claude Code hooks pipe a payload."""
+    if sys.stdin.isatty():
+        return {}
+    try:
+        ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+        if not ready:
+            return {}
+        raw = sys.stdin.read()
+        if not raw.strip():
+            return {}
+        return json.loads(raw)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def session_id_from_payload(payload: dict) -> str:
+    """Extract a stable session id. Falls back to parent tty/pid if missing."""
+    sid = payload.get("session_id") or payload.get("sessionId")
+    if sid:
+        return str(sid)
+    # Fallback: parent process id + tty. Same terminal → same id.
+    ppid = os.getppid()
+    try:
+        tty = os.ttyname(0)
+    except OSError:
+        tty = ""
+    return f"pid-{ppid}-{os.path.basename(tty or 'notty')}"
+
+
+EVENT_MAP = {
+    # event -> (isWorking, isAlert, isIdle, isCompacting)
+    "on-user-prompt":    (False, False, False, True),
+    "on-session-start":  (False, False, True,  False),
+    "on-pre-tool":       (True,  False, False, False),
+    "on-post-tool":      (True,  False, False, False),
+    "on-notification":   (False, True,  False, False),
+    "on-stop":           (False, False, True,  False),
+    "on-session-end":    None,      # delete the file
+    "on-compact-start":  (False, False, False, True),
+    "reset":             (False, False, True,  False),
+}
+
+
+def is_clippy_running() -> bool:
+    """Probe /proc for a running clippy process."""
+    try:
+        for d in Path("/proc").iterdir():
+            if not d.name.isdigit():
+                continue
+            try:
+                comm = (d / "comm").read_text().strip()
+            except OSError:
+                continue
+            if comm == "clippy":
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def resolve_clippy_bin() -> str | None:
+    """Find the clippy binary. CLIPPY_BIN wins, then PATH, then the local
+    release build relative to this hook script."""
+    env_bin = os.environ.get("CLIPPY_BIN")
+    if env_bin and Path(env_bin).is_file() and os.access(env_bin, os.X_OK):
+        return env_bin
+    import shutil
+    on_path = shutil.which("clippy")
+    if on_path:
+        return on_path
+    here = Path(__file__).resolve().parent
+    local = here.parent / "target" / "release" / "clippy"
+    if local.is_file() and os.access(local, os.X_OK):
+        return str(local)
+    return None
+
+
+def launch_clippy_if_needed() -> None:
+    """Spawn clippy detached if it isn't already running. Best-effort —
+    silent failure so a hook crash never blocks Claude Code startup."""
+    if is_clippy_running():
+        return
+    bin_path = resolve_clippy_bin()
+    if not bin_path:
+        return
+    try:
+        import subprocess
+        subprocess.Popen(
+            [bin_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError:
+        pass
+
+
+def sweep_stale_peers(keep: Path) -> None:
+    """Delete peer session files older than PEER_STALE_SECS. Best-effort."""
+    import time
+    cutoff = time.time() - PEER_STALE_SECS
+    try:
+        for f in SESSIONS_DIR.glob("*.json"):
+            if f == keep:
+                continue
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("clippy-state: missing event arg", file=sys.stderr)
+        sys.exit(1)
+    event = sys.argv[1]
+    if event not in EVENT_MAP:
+        print(f"clippy-state: unknown event '{event}'", file=sys.stderr)
+        sys.exit(1)
+
+    payload = read_stdin_json()
+    sid = session_id_from_payload(payload)
+    session_file = SESSIONS_DIR / f"{sid}.json"
+    sweep_stale_peers(session_file)
+
+    # Auto-launch the mascot on any hook invocation. Idempotent — early-
+    # returns if clippy is already running. Firing on every event means
+    # `claude --resume` and other entry points that might skip SessionStart
+    # still bring clippy up.
+    launch_clippy_if_needed()
+
+    action = EVENT_MAP[event]
+    if action is None:
+        # SessionEnd: remove the file
+        try:
+            session_file.unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    is_working, is_alert, is_idle, is_compacting = action
+    state = {
+        "claudeCode::isWorking": is_working,
+        "claudeCode::isAlert": is_alert,
+        "claudeCode::isIdle": is_idle,
+        "claudeCode::isCompacting": is_compacting,
+        "last_event": event,
+        "session_id": sid,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    session_file.write_text(json.dumps(state, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    main()
