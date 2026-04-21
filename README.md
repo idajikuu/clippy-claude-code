@@ -1,5 +1,10 @@
 # Clippy
 
+[![release](https://img.shields.io/github/v/release/idajikuu/clippy-claude-code?display_name=tag)](https://github.com/idajikuu/clippy-claude-code/releases)
+[![build](https://github.com/idajikuu/clippy-claude-code/actions/workflows/release.yml/badge.svg)](https://github.com/idajikuu/clippy-claude-code/actions/workflows/release.yml)
+[![license](https://img.shields.io/github/license/idajikuu/clippy-claude-code)](LICENSE)
+[![stars](https://img.shields.io/github/stars/idajikuu/clippy-claude-code?style=social)](https://github.com/idajikuu/clippy-claude-code/stargazers)
+
 **A desktop mascot for Claude Code on Linux.** Clippy lives on your screen, reacts to your Claude Code session in real time, and dings you when Claude is done.
 
 Native GTK + Rust. ~1 MB binary. No Electron, no Node, no webview.
