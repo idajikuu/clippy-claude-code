@@ -5,7 +5,7 @@
 Native GTK + Rust. ~1 MB binary. No Electron, no Node, no webview.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Clippy reacting to Claude Code states" width="240">
+  <img src="docs/demo.gif" alt="Clippy reacting to a Claude Code session" width="640">
 </p>
 
 ## Why
@@ -26,8 +26,8 @@ States are `idle`, `working`, `alert` (CC prompted for attention), and `compacti
 ## Install
 
 ```bash
-git clone https://github.com/idajikuu/clippy.git
-cd clippy
+git clone https://github.com/idajikuu/clippy-claude-code.git
+cd clippy-claude-code
 cargo build --release
 ./hooks/install.sh
 ```
