@@ -5,7 +5,7 @@
 Native GTK + Rust. ~1 MB binary. No Electron, no Node, no webview.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Clippy reacting to a Claude Code session" width="640">
+  <img src="docs/demo-v2.gif" alt="Clippy reacting to a Claude Code session" width="640">
 </p>
 
 ## Why
