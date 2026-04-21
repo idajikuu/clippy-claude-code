@@ -25,7 +25,7 @@ use crate::anim::Anim;
 use crate::pack::{webp_path_for, Edge, Pack};
 use crate::state::{read_aggregate_state, sessions_dir, ClaudeCodeState};
 
-const WINDOW_SIZE: i32 = 180;
+const WINDOW_SIZE: i32 = 240;
 
 /// Project-root heuristic: the executable lives at
 /// `<root>/target/{debug,release}/clippy`, so walk three ancestors up to
