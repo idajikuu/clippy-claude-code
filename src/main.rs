@@ -297,22 +297,31 @@ fn build_ui(
     win.add(&area);
 
     // Per-frame tick: pick up any new state from the watcher, check for
-    // transition completion, advance, redraw.
+    // transition completion, advance, redraw only when the visible frame
+    // actually changes (same edge + same frame index → skip queue_draw).
     {
         let app = app.clone();
         let area = area.clone();
         let root = root.clone();
         let shared_state = shared_state.clone();
+        let last_key: Rc<RefCell<Option<(String, usize)>>> = Rc::new(RefCell::new(None));
         glib::timeout_add_local(Duration::from_millis(16), move || {
-            {
+            let key = {
                 let mut app = app.borrow_mut();
                 let latest = *shared_state.lock().unwrap();
                 if app.cc_state != latest {
                     app.cc_state = latest;
                 }
                 app.advance(&root);
+                let looping = app.playing_edge().is_loop;
+                let idx = app.anim.current_frame_index(looping);
+                (app.playing_edge_id.clone(), idx)
+            };
+            let mut slot = last_key.borrow_mut();
+            if slot.as_ref() != Some(&key) {
+                *slot = Some(key);
+                area.queue_draw();
             }
-            area.queue_draw();
             glib::ControlFlow::Continue
         });
     }
