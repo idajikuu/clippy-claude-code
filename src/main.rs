@@ -305,7 +305,7 @@ fn build_ui(
         let root = root.clone();
         let shared_state = shared_state.clone();
         let last_key: Rc<RefCell<Option<(String, usize)>>> = Rc::new(RefCell::new(None));
-        glib::timeout_add_local(Duration::from_millis(16), move || {
+        glib::timeout_add_local(Duration::from_millis(33), move || {
             let key = {
                 let mut app = app.borrow_mut();
                 let latest = *shared_state.lock().unwrap();
