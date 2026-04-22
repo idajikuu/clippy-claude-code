@@ -282,8 +282,9 @@ fn build_ui(
             ctx.scale(scale, scale);
             let _ = ctx.set_source_surface(surf, 0.0, 0.0);
             let pat = ctx.source();
-            // Default filter drops single-pixel detail on 2-3x downscale.
-            pat.set_filter(cairo::Filter::Best);
+            // Filter::Good is bilinear — plenty for ~2x downscale of a 240px
+            // mascot and several times cheaper than Best's full mipmap path.
+            pat.set_filter(cairo::Filter::Good);
             // Default extend (None) samples transparent outside the source, so
             // wide-kernel filters fade edge pixels to clear — pad clamps
             // samples to the edge instead.
