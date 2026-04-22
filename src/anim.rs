@@ -61,10 +61,9 @@ impl Anim {
         })
     }
 
-    /// For a loop animation, sample the current frame by wall clock modulo total.
-    /// For non-loop, callers should instead call `current_frame_oneshot` so the
-    /// last frame sticks once the animation completes.
-    pub fn current_frame(&self, looping: bool) -> &ImageSurface {
+    /// For a loop animation, sample the current frame index by wall clock modulo
+    /// total. For non-loop, the last frame index sticks once the animation ends.
+    pub fn current_frame_index(&self, looping: bool) -> usize {
         let elapsed = self.start.elapsed().as_millis() as u32;
         let t = if looping {
             elapsed % self.total_ms
@@ -75,10 +74,14 @@ impl Anim {
         for (i, d) in self.durations_ms.iter().enumerate() {
             acc += d;
             if t < acc {
-                return &self.frames[i];
+                return i;
             }
         }
-        self.frames.last().unwrap()
+        self.frames.len().saturating_sub(1)
+    }
+
+    pub fn current_frame(&self, looping: bool) -> &ImageSurface {
+        &self.frames[self.current_frame_index(looping)]
     }
 
     /// Elapsed milliseconds since the animation started; used to tell when a

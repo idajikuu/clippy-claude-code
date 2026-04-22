@@ -282,8 +282,9 @@ fn build_ui(
             ctx.scale(scale, scale);
             let _ = ctx.set_source_surface(surf, 0.0, 0.0);
             let pat = ctx.source();
-            // Default filter drops single-pixel detail on 2-3x downscale.
-            pat.set_filter(cairo::Filter::Best);
+            // Filter::Good is bilinear — plenty for ~2x downscale of a 240px
+            // mascot and several times cheaper than Best's full mipmap path.
+            pat.set_filter(cairo::Filter::Good);
             // Default extend (None) samples transparent outside the source, so
             // wide-kernel filters fade edge pixels to clear — pad clamps
             // samples to the edge instead.
@@ -297,22 +298,31 @@ fn build_ui(
     win.add(&area);
 
     // Per-frame tick: pick up any new state from the watcher, check for
-    // transition completion, advance, redraw.
+    // transition completion, advance, redraw only when the visible frame
+    // actually changes (same edge + same frame index → skip queue_draw).
     {
         let app = app.clone();
         let area = area.clone();
         let root = root.clone();
         let shared_state = shared_state.clone();
-        glib::timeout_add_local(Duration::from_millis(16), move || {
-            {
+        let last_key: Rc<RefCell<Option<(String, usize)>>> = Rc::new(RefCell::new(None));
+        glib::timeout_add_local(Duration::from_millis(33), move || {
+            let key = {
                 let mut app = app.borrow_mut();
                 let latest = *shared_state.lock().unwrap();
                 if app.cc_state != latest {
                     app.cc_state = latest;
                 }
                 app.advance(&root);
+                let looping = app.playing_edge().is_loop;
+                let idx = app.anim.current_frame_index(looping);
+                (app.playing_edge_id.clone(), idx)
+            };
+            let mut slot = last_key.borrow_mut();
+            if slot.as_ref() != Some(&key) {
+                *slot = Some(key);
+                area.queue_draw();
             }
-            area.queue_draw();
             glib::ControlFlow::Continue
         });
     }
